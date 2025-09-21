@@ -1,6 +1,54 @@
+import pygame
 import random
 import cv2
+import os
 import numpy as np
+
+
+# //// HELPER FUNCTIONS /////
+def overlay_image(background, overlay, x, y):
+    h, w = overlay.shape[:2]
+    H, W = background.shape[:2]
+
+    # Clip overlay if it goes outside the background
+    x_start = max(x, 0)
+    y_start = max(y, 0)
+    x_end = min(x + w, W)
+    y_end = min(y + h, H)
+
+    overlay_x_start = x_start - x
+    overlay_y_start = y_start - y
+    overlay_x_end = overlay_x_start + (x_end - x_start)
+    overlay_y_end = overlay_y_start + (y_end - y_start)
+
+    if x_start >= x_end or y_start >= y_end:
+        return background  # completely off-screen
+
+    roi = background[y_start:y_end, x_start:x_end]
+
+    # Extract the relevant part of the overlay
+    overlay_part = overlay[overlay_y_start:overlay_y_end, overlay_x_start:overlay_x_end]
+
+    # Separate alpha channel and normalize
+    alpha = overlay_part[:, :, 3:] / 255.0
+    alpha_inv = 1.0 - alpha
+
+    # Blend
+    roi[:] = alpha_inv * roi + alpha * overlay_part[:, :, :3]
+
+    return background
+
+
+
+def reset_game():
+    global game_running, game_over, balloons, frame_count, score, losses
+    game_running = True
+    game_over = False
+    balloons = []
+    frame_count = 0
+    score = 0
+    losses = 0
+
 
 cap = cv2.VideoCapture(0)
 
@@ -29,7 +77,8 @@ color_pos = [0, 0, 0, 0]  # x positions for color rectangles
 current_color = white  # Default 
 
 #BALLOON GAME PARAMS
-game_started = False
+game_running = False
+game_over = False
 balloons = []
 frame_count = 0
 MIN_SPEED = 5
@@ -44,8 +93,42 @@ MAX_LOSSES = 10
 FRAME_WIDTH = int(cap.get(3))
 FRAME_HEIGHT = int(cap.get(4))
 #BG images
-bg = cv2.imread('img/background.jpg')
+if not os.path.exists('assets/img/background.jpg'):
+    raise SystemExit(" Could not find background image")
+bg = cv2.imread('assets/img/background.jpg')
 #bg = cv2.resize(bg, (FRAME_WIDTH, FRAME_HEIGHT))
+
+
+# //////////////// ASSETS ///////////////////////
+
+pygame.mixer.init()
+
+if not os.path.exists('assets/sounds/soundTrack.mp3'):
+    raise SystemExit(" Could not find sound file")
+bg_music = "assets/sounds/soundTrack.mp3"
+#pop_sound = pygame.mixer.Sound('assets/sounds/pop.wav')
+#loss_sound = pygame.mixer.Sound('assets/sounds/loss.wav')
+
+pygame.mixer.music.load(bg_music)
+pygame.mixer.music.set_volume(0.2)
+pygame.mixer.music.play(loops=-1)
+
+#balloon images 
+red_balloon = cv2.imread('assets/img/balloons/red.png', cv2.IMREAD_UNCHANGED)
+green_balloon = cv2.imread('assets/img/balloons/green.png', cv2.IMREAD_UNCHANGED)
+blue_balloon = cv2.imread('assets/img/balloons/blue.png', cv2.IMREAD_UNCHANGED)
+white_balloon = cv2.imread('assets/img/balloons/white.png', cv2.IMREAD_UNCHANGED)
+
+red_balloon = cv2.resize(red_balloon, (60, 80))
+green_balloon = cv2.resize(green_balloon, (60, 80))
+blue_balloon = cv2.resize(blue_balloon, (60, 80))
+white_balloon = cv2.resize(white_balloon, (60, 80))
+
+#se img shapes 
+print(red_balloon.shape)
+print(green_balloon.shape)
+print(blue_balloon.shape)
+print(white_balloon.shape)
 
 while True:
     ret, frame = cap.read()    
@@ -58,20 +141,24 @@ while True:
         canvas = np.zeros_like(frame)
 
 
-    bg = cv2.resize(bg, (frame.shape[1], frame.shape[0]))
-    frame = cv2.addWeighted(frame, 0.5, bg, 0.5, 0)
+    # bg = cv2.resize(bg, (frame.shape[1], frame.shape[0]))
+    # frame = cv2.addWeighted(frame, 0.2, bg, 1, 0)
 
     frame = cv2.flip(frame, 1)        # Flip the frame horizontally
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)  # Convert to HSV color space
     mask = cv2.inRange(hsv, pink_lower, pink_upper)
 
-    if not game_started:
+    key = cv2.waitKey(1) & 0xFF
+    if not game_running or game_over:
         cv2.putText(frame, 'Press S to Start the Balloon Game or Q to quit', (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 
                     1, (255, 255, 255), 2, cv2.LINE_AA)
         cv2.imshow('Webcam', frame)       # Show the frame
-        key = cv2.waitKey(1) & 0xFF
+        #key = cv2.waitKey(1) & 0xFF
         if key == ord('s'):
-            game_started = True
+            reset_game()
+        elif key == ord('q'):
+            break
+        
         continue
 
     #clean mask
@@ -102,7 +189,15 @@ while True:
     for b in balloons:
         b['y'] -= b['speed']
         if b['y'] + b['radius'] > 0:  # Only draw if above the bottom of the frame
-            cv2.circle(frame, (int(b['x']), int(b['y'])), b['radius'], b['color'], -1)
+            #cv2.circle(frame, (int(b['x']), int(b['y'])), b['radius'], b['color'], -1)
+            if b['color'] == red:
+                frame = overlay_image(frame, red_balloon, int(b['x']) - 30, int(b['y']) - 80)
+            elif b['color'] == green:
+                frame = overlay_image(frame, green_balloon, int(b['x']) - 30, int(b['y']) - 80)
+            elif b['color'] == blue:
+                frame = overlay_image(frame, blue_balloon, int(b['x']) - 30, int(b['y']) - 80)
+            elif b['color'] == white:
+                frame = overlay_image(frame, white_balloon, int(b['x']) - 30, int(b['y']) - 80)
 
 
 
@@ -174,11 +269,14 @@ while True:
     
 
     if losses >= MAX_LOSSES:
+        game_over = True
+        game_running = False
+
         cv2.putText(frame, 'Game Over! Press Q to Quit', (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 
                     1, (0, 0, 255), 2, cv2.LINE_AA)
         cv2.imshow('Webcam', frame)       # Show the frame
         key = cv2.waitKey(1) & 0xFF
-        game_started = False
+        game_running = False
         balloons = []
         if key == ord('q'):
             break
@@ -187,10 +285,6 @@ while True:
     # Combine the frame and the canvas
     res = cv2.add(frame, canvas)
     cv2.imshow('Webcam', res)       # Show the combined result
-
-    # Press 'q' to quit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
 
 cap.release()                          # Release the webcam
 cv2.destroyAllWindows()                # Close the window
