@@ -76,13 +76,14 @@ colors = [red, green, blue, white]
 color_pos = [0, 0, 0, 0]  # x positions for color rectangles
 current_color = white  # Default 
 
+
 #BALLOON GAME PARAMS
 game_running = False
 game_over = False
 balloons = []
 frame_count = 0
-MIN_SPEED = 5
-MAX_SPEED = 10
+MIN_SPEED = 3
+MAX_SPEED = 7
 FLOWN_RATE = 30  # frames per balloon
 score = 0       #red: 10p , white: 2p, blue: 5p, green: 8p
 losses = 0
@@ -93,10 +94,10 @@ MAX_LOSSES = 10
 FRAME_WIDTH = int(cap.get(3))
 FRAME_HEIGHT = int(cap.get(4))
 #BG images
-if not os.path.exists('assets/img/background.jpg'):
+if not os.path.exists('assets/img/bg.jpeg'):
     raise SystemExit(" Could not find background image")
-bg = cv2.imread('assets/img/background.jpg')
-#bg = cv2.resize(bg, (FRAME_WIDTH, FRAME_HEIGHT))
+bg = cv2.imread('assets/img/bg.jpeg')
+bg = cv2.resize(bg, (FRAME_WIDTH, FRAME_HEIGHT))
 
 
 # //////////////// ASSETS ///////////////////////
@@ -106,7 +107,7 @@ pygame.mixer.init()
 if not os.path.exists('assets/sounds/soundTrack.mp3'):
     raise SystemExit(" Could not find sound file")
 bg_music = "assets/sounds/soundTrack.mp3"
-#pop_sound = pygame.mixer.Sound('assets/sounds/pop.wav')
+pop_sound = pygame.mixer.Sound('assets/sounds/popSound.wav')
 #loss_sound = pygame.mixer.Sound('assets/sounds/loss.wav')
 
 pygame.mixer.music.load(bg_music)
@@ -114,21 +115,13 @@ pygame.mixer.music.set_volume(0.2)
 pygame.mixer.music.play(loops=-1)
 
 #balloon images 
-red_balloon = cv2.imread('assets/img/balloons/red.png', cv2.IMREAD_UNCHANGED)
-green_balloon = cv2.imread('assets/img/balloons/green.png', cv2.IMREAD_UNCHANGED)
-blue_balloon = cv2.imread('assets/img/balloons/blue.png', cv2.IMREAD_UNCHANGED)
-white_balloon = cv2.imread('assets/img/balloons/white.png', cv2.IMREAD_UNCHANGED)
+balloon_colors = ['red', 'green', 'blue', 'white']
+balloons_imgs = {}
 
-red_balloon = cv2.resize(red_balloon, (60, 80))
-green_balloon = cv2.resize(green_balloon, (60, 80))
-blue_balloon = cv2.resize(blue_balloon, (60, 80))
-white_balloon = cv2.resize(white_balloon, (60, 80))
+for color in balloon_colors:
+    img = cv2.imread(f'assets/img/balloons/{color}.png', cv2.IMREAD_UNCHANGED)
+    balloons_imgs[color] = cv2.resize(img, (60, 80))
 
-#se img shapes 
-print(red_balloon.shape)
-print(green_balloon.shape)
-print(blue_balloon.shape)
-print(white_balloon.shape)
 
 while True:
     ret, frame = cap.read()    
@@ -188,16 +181,20 @@ while True:
     # Update and draw balloons
     for b in balloons:
         b['y'] -= b['speed']
-        if b['y'] + b['radius'] > 0:  # Only draw if above the bottom of the frame
-            #cv2.circle(frame, (int(b['x']), int(b['y'])), b['radius'], b['color'], -1)
+        if b['y'] + b['radius'] > 0:
+        # Overlay image using the balloon's color
+            color_name = None
             if b['color'] == red:
-                frame = overlay_image(frame, red_balloon, int(b['x']) - 30, int(b['y']) - 80)
+                color_name = 'red'
             elif b['color'] == green:
-                frame = overlay_image(frame, green_balloon, int(b['x']) - 30, int(b['y']) - 80)
+                color_name = 'green'
             elif b['color'] == blue:
-                frame = overlay_image(frame, blue_balloon, int(b['x']) - 30, int(b['y']) - 80)
+                color_name = 'blue'
             elif b['color'] == white:
-                frame = overlay_image(frame, white_balloon, int(b['x']) - 30, int(b['y']) - 80)
+                color_name = 'white'
+
+            if color_name:
+                frame = overlay_image(frame, balloons_imgs[color_name], int(b['x']) - 30, int(b['y']) - 80)
 
 
 
@@ -222,7 +219,6 @@ while True:
                     )
 
 
-
                 cv2.circle(frame, (cX, cY), 10, current_color, -1)  # Draw a white disk
                 prev_point = center
             else:
@@ -237,6 +233,8 @@ while True:
             distance = (dx**2 + dy**2)**0.5
             if distance < b['radius'] + 10:  # 10 is the radius of the drawing point
                 balloons.remove(b)
+                pop_sound.play()
+                b['popped'] = True
 
                 #update score
                 if b['color'] == red:
@@ -262,7 +260,7 @@ while True:
             balloons.remove(b)
             
 
-    if (frame_count % 200) == 0:
+    if (frame_count % 300) == 0:
         MIN_SPEED += 5
         MAX_SPEED += 5
         FLOWN_RATE = max(10, FLOWN_RATE - 2)  # Decrease the rate to a minimum of 10 frames
