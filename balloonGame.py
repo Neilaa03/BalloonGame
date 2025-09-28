@@ -103,9 +103,9 @@ game_running = False
 game_over = False
 balloons = []
 frame_count = 0
-MIN_SPEED = 5
-MAX_SPEED = 10
-FLOWN_RATE = 30  # frames per balloon
+MIN_SPEED = 10
+MAX_SPEED = 18
+FLOWN_RATE = 20  # frames per balloon
 score = 0       #red: 10p , white: 2p, blue: 5p, green: 8p
 losses = 0
 MAX_LOSSES = 10
@@ -168,20 +168,20 @@ while True:
     result = hands.process(rgb_frame)
 
     key = cv2.waitKey(1) & 0xFF
-    if not game_running or game_over:
-        overlay = frame_display.copy()
 
-        # Semi-transparent black box for title/instructions
-        cv2.rectangle(overlay, (50, 120), (frame_display.shape[1] - 50, 220), (0, 0, 0), -1)
-        frame_display = cv2.addWeighted(overlay, 0.6, frame_display, 0.4, 0)
+    if game_over:
+        save_score(score)
+        high_scores = load_scores()
 
-        # Title text
-        cv2.putText(frame_display, 'Balloon Pop!', (120, 170),
-                    cv2.FONT_HERSHEY_TRIPLEX, 2, (128, 10, 128), 3, cv2.LINE_AA)
+        cv2.putText(frame_display, 'GAME OVER!', (150, 200),
+                    cv2.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), 4, cv2.LINE_AA)
 
-        # Instruction text (centered)
-        cv2.putText(frame_display, 'Press S to Start or Q to Quit',
-                    (100, 210), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+        for i, s in enumerate(high_scores[:5]):
+            cv2.putText(frame_display, f"{i+1}. {s}", (200, 260 + i*40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+        cv2.putText(frame_display, 'Press Q to Quit or S to Restart',
+                    (80, 480), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
 
         # Show the frame
         cv2.imshow('Webcam', frame_display)
@@ -191,6 +191,27 @@ while True:
             break
         
         continue
+    
+    # --- START SCREEN ---
+    if not game_running:
+        overlay = frame_display.copy()
+        cv2.rectangle(overlay, (50, 120), (frame_display.shape[1] - 50, 220), (0, 0, 0), -1)
+        frame_display = cv2.addWeighted(overlay, 0.6, frame_display, 0.4, 0)
+
+        cv2.putText(frame_display, 'Balloon Pop!', (120, 170),
+                    cv2.FONT_HERSHEY_TRIPLEX, 2, (128, 10, 128), 3, cv2.LINE_AA)
+
+        cv2.putText(frame_display, 'Press S to Start or Q to Quit',
+                    (100, 210), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+        cv2.imshow('Webcam', frame_display)
+
+        if key == ord('s'):
+            reset_game()
+        elif key == ord('q'):
+            break
+        continue
+
 
     # ---- Score & Losses with background box ----
     cv2.rectangle(frame_display, (5, 5), (250, 45), (0, 0, 0), -1)  # Black box
@@ -218,8 +239,8 @@ while True:
             cv2.FONT_HERSHEY_DUPLEX, 0.6, (0,255,0), 1)
     cv2.putText(frame_display, "Blue = 5", (frame_x + 10, frame_y + 55),
             cv2.FONT_HERSHEY_DUPLEX, 0.6, (255,0,0), 1)
-    cv2.putText(frame_display, "White = 2", (frame_x + 10, frame_y + 75),
-            cv2.FONT_HERSHEY_DUPLEX, 0.6, (200,200,200), 1)
+    cv2.putText(frame_display, "Purple = 2", (frame_x + 10, frame_y + 75),
+            cv2.FONT_HERSHEY_DUPLEX, 0.6, (128,0,128), 1)
 
 
     #clean mask
@@ -311,10 +332,10 @@ while True:
             balloons.remove(b)
             
 
-    if (frame_count % 200) == 0:
-        MIN_SPEED += 6
-        MAX_SPEED += 6
-        FLOWN_RATE = max(10, FLOWN_RATE - 5)  # Decrease the rate to a minimum of 10 frames
+    if (frame_count % 150) == 0:
+        MIN_SPEED += 8
+        MAX_SPEED += 8
+        FLOWN_RATE = max(5, FLOWN_RATE - 10)  # Decrease the rate to a minimum of 10 frames
     
 
     if losses >= MAX_LOSSES:
@@ -326,11 +347,6 @@ while True:
 
         cv2.putText(frame_display, 'GAME OVER!', (150, 200),
                     cv2.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), 4, cv2.LINE_AA)
-
-         # High scores
-        for i, s in enumerate(high_scores[:5]):
-            cv2.putText(frame_display, f"{i+1}. {s}", (200, 220 + i*40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
         # Restart/Quit message LOWER on the screen (not overwriting)
         cv2.putText(frame_display, 'Press Q to Quit or S to Restart',
