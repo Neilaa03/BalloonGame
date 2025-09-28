@@ -3,6 +3,27 @@ import random
 import cv2
 import os
 import numpy as np
+import mediapipe as mp
+
+
+def save_score(score, filename="scores.txt"):
+    with open(filename, "a") as f:
+        f.write(str(score) + "\n")
+
+def load_scores(filename="scores.txt"):
+    try:
+        with open(filename, "r") as f:
+            scores = [int(line.strip()) for line in f.readlines()]
+        return sorted(scores, reverse=True)
+    except FileNotFoundError:
+        return []
+
+
+
+#// HAND DETECTION ////
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7, min_tracking_confidence=0.7)
 
 
 # //// HELPER FUNCTIONS /////
@@ -82,8 +103,8 @@ game_running = False
 game_over = False
 balloons = []
 frame_count = 0
-MIN_SPEED = 3
-MAX_SPEED = 7
+MIN_SPEED = 5
+MAX_SPEED = 10
 FLOWN_RATE = 30  # frames per balloon
 score = 0       #red: 10p , white: 2p, blue: 5p, green: 8p
 losses = 0
@@ -130,23 +151,40 @@ while True:
         print(" Can't receive frame. Exiting ...")
         break
     
+    frame = cv2.flip(frame, 1)  # Flip horizontally
+    frame_original = frame.copy() 
+
     if canvas is None:
         canvas = np.zeros_like(frame)
 
 
-    # bg = cv2.resize(bg, (frame.shape[1], frame.shape[0]))
-    # frame = cv2.addWeighted(frame, 0.2, bg, 1, 0)
+    bg_resized = cv2.resize(bg, (frame.shape[1], frame.shape[0]))
+    bg_alpha = 0.2  # Transparency factor
+    frame_display = cv2.addWeighted(frame, bg_alpha, bg_resized, 1 - bg_alpha, 0)
 
-    frame = cv2.flip(frame, 1)        # Flip the frame horizontally
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)  # Convert to HSV color space
-    mask = cv2.inRange(hsv, pink_lower, pink_upper)
+
+    # HAND DETECTION
+    rgb_frame = cv2.cvtColor(frame_original, cv2.COLOR_BGR2RGB)
+    result = hands.process(rgb_frame)
 
     key = cv2.waitKey(1) & 0xFF
     if not game_running or game_over:
-        cv2.putText(frame, 'Press S to Start the Balloon Game or Q to quit', (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 
-                    1, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.imshow('Webcam', frame)       # Show the frame
-        #key = cv2.waitKey(1) & 0xFF
+        overlay = frame_display.copy()
+
+        # Semi-transparent black box for title/instructions
+        cv2.rectangle(overlay, (50, 120), (frame_display.shape[1] - 50, 220), (0, 0, 0), -1)
+        frame_display = cv2.addWeighted(overlay, 0.6, frame_display, 0.4, 0)
+
+        # Title text
+        cv2.putText(frame_display, 'Balloon Pop!', (120, 170),
+                    cv2.FONT_HERSHEY_TRIPLEX, 2, (128, 10, 128), 3, cv2.LINE_AA)
+
+        # Instruction text (centered)
+        cv2.putText(frame_display, 'Press S to Start or Q to Quit',
+                    (100, 210), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+
+        # Show the frame
+        cv2.imshow('Webcam', frame_display)
         if key == ord('s'):
             reset_game()
         elif key == ord('q'):
@@ -154,16 +192,44 @@ while True:
         
         continue
 
+    # ---- Score & Losses with background box ----
+    cv2.rectangle(frame_display, (5, 5), (250, 45), (0, 0, 0), -1)  # Black box
+    cv2.putText(frame_display, f'Score: {score}', (15, 35),
+                cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+
+    cv2.rectangle(frame_display, (380, 5), (640, 45), (0, 0, 0), -1)
+    cv2.putText(frame_display, f'Losses: {losses}/{MAX_LOSSES}', (390, 35),
+                cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+    
+
+    # -----Score keys-----
+    frame_x = 20
+    frame_y = 55
+    frame_size = 130
+    overlay = frame_display.copy()
+
+    cv2.rectangle(overlay, (frame_x, frame_y),
+              (frame_x + frame_size, frame_y + 100), (0, 0, 0), -1)
+    frame_display = cv2.addWeighted(overlay, 0.4, frame_display, 0.6, 0)
+
+    cv2.putText(frame_display, "Red = 10", (frame_x + 10, frame_y + 15),
+            cv2.FONT_HERSHEY_DUPLEX, 0.6, (0,0,255), 1)
+    cv2.putText(frame_display, "Green = 8", (frame_x + 10, frame_y + 35),
+            cv2.FONT_HERSHEY_DUPLEX, 0.6, (0,255,0), 1)
+    cv2.putText(frame_display, "Blue = 5", (frame_x + 10, frame_y + 55),
+            cv2.FONT_HERSHEY_DUPLEX, 0.6, (255,0,0), 1)
+    cv2.putText(frame_display, "White = 2", (frame_x + 10, frame_y + 75),
+            cv2.FONT_HERSHEY_DUPLEX, 0.6, (200,200,200), 1)
+
+
     #clean mask
+    hsv = cv2.cvtColor(frame_display, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, pink_lower, pink_upper)
     kernel = np.ones((2, 2), np.uint8)
     mask = cv2.erode(mask, kernel, iterations=1)
     mask = cv2.dilate(mask, kernel, iterations=1)
 
-    #score display
-    cv2.putText(frame, f'Score: {score}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 
-                1, (255, 255, 255), 2, cv2.LINE_AA)
-    cv2.putText(frame, f'Losses: {losses}/{MAX_LOSSES}', (400, 30), cv2.FONT_HERSHEY_SIMPLEX, 
-                1, (255, 255, 255), 2, cv2.LINE_AA)
+
 
     #generate balloons
     if frame_count % FLOWN_RATE == 0:  # Every 30 frames, add a new balloon
@@ -176,7 +242,6 @@ while True:
             'popped': False
         }
         balloons.append(balloon)
-
 
     # Update and draw balloons
     for b in balloons:
@@ -194,36 +259,25 @@ while True:
                 color_name = 'white'
 
             if color_name:
-                frame = overlay_image(frame, balloons_imgs[color_name], int(b['x']) - 30, int(b['y']) - 80)
+                frame_display = overlay_image(frame_display, balloons_imgs[color_name], int(b['x']) - 30, int(b['y']) - 80)
 
 
+    center = None
+    if result.multi_hand_landmarks:
+        for hand_landmarks in result.multi_hand_landmarks:
+            # Example: use the tip of the index finger (landmark 8)
+            h, w, _ = frame.shape
+            x = int(hand_landmarks.landmark[8].x * w)
+            y = int(hand_landmarks.landmark[8].y * h)
+            center = (x, y)
 
-    #create contour
-    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        #draw disk at the center
-        if area > 400:
+            # Draw hand landmarks (optional, for debugging)
+            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            # Draw a small circle where the finger is
+            cv2.circle(frame, center, 10, (0, 255, 0), -1)
             
-            M = cv2.moments(cnt)
-            if M["m00"] != 0:
-                cX = int(M["m10"] / M["m00"])
-                cY = int(M["m01"] / M["m00"])
 
-                if center is None:
-                    center = (cX, cY)
-                else:
-                    center = (
-                        int(center[0] * (1 - alpha) + cX * alpha),
-                        int(center[1] * (1 - alpha) + cY * alpha)
-                    )
-
-
-                cv2.circle(frame, (cX, cY), 10, current_color, -1)  # Draw a white disk
-                prev_point = center
-            else:
-                center = None
-                prev_point = None
 
     #pop balloon
     if center is not None:
@@ -238,21 +292,18 @@ while True:
 
                 #update score
                 if b['color'] == red:
-                    score += 10
-                elif b['color'] == green:
                     score += 8
+                elif b['color'] == green:
+                    score += 6
                 elif b['color'] == blue:
-                    score += 5
+                    score += 3
                 elif b['color'] == white:
-                    score += 2
-                
-                #add pop sound here
+                    score += 1                
                 break
 
     frame_count += 1
 
     #update balloon list
-   # balloons = [b for b in balloons if b['y'] + b['radius'] > 0]
     for b in balloons[:]:
         if b['y'] + b['radius'] < 0:
             if not b['popped']:
@@ -260,36 +311,84 @@ while True:
             balloons.remove(b)
             
 
-    if (frame_count % 300) == 0:
-        MIN_SPEED += 5
-        MAX_SPEED += 5
-        FLOWN_RATE = max(10, FLOWN_RATE - 2)  # Decrease the rate to a minimum of 10 frames
+    if (frame_count % 200) == 0:
+        MIN_SPEED += 6
+        MAX_SPEED += 6
+        FLOWN_RATE = max(10, FLOWN_RATE - 5)  # Decrease the rate to a minimum of 10 frames
     
 
     if losses >= MAX_LOSSES:
         game_over = True
         game_running = False
 
-        cv2.putText(frame, 'Game Over! Press Q to Quit', (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 
-                    1, (0, 0, 255), 2, cv2.LINE_AA)
-        cv2.imshow('Webcam', frame)       # Show the frame
+        save_score(score)
+        high_scores = load_scores()
+
+        cv2.putText(frame_display, 'GAME OVER!', (150, 200),
+                    cv2.FONT_HERSHEY_COMPLEX, 2, (0, 0, 255), 4, cv2.LINE_AA)
+
+         # High scores
+        for i, s in enumerate(high_scores[:5]):
+            cv2.putText(frame_display, f"{i+1}. {s}", (200, 220 + i*40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+        # Restart/Quit message LOWER on the screen (not overwriting)
+        cv2.putText(frame_display, 'Press Q to Quit or S to Restart',
+                    (80, 480), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
+        
+        cv2.imshow('Webcam', frame_display)       # Show the frame
         key = cv2.waitKey(1) & 0xFF
-        game_running = False
+       # game_running = False
         balloons = []
         if key == ord('q'):
             break
         continue
 
-    # Combine the frame and the canvas
-    res = cv2.add(frame, canvas)
+    
+    # Allow quitting anytime during gameplay
+    if key == ord('q'):
+        game_over = True
+        game_running = False
+        continue
+    
+    res = cv2.add(frame_display, canvas)
     cv2.imshow('Webcam', res)       # Show the combined result
 
 cap.release()                          # Release the webcam
 cv2.destroyAllWindows()                # Close the window
 
 
-#TODO 
-#balloons are colored images of ballons selected randomly by color
-#add background image
-#add pop up sound and loss sound
-#
+
+
+
+
+    # #create contour for pensil detection
+    #    # Convert to HSV color space
+    # 
+    
+
+    # contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    # for cnt in contours:
+    #     area = cv2.contourArea(cnt)
+    #     #draw disk at the center
+    #     if area > 400:
+            
+    #         M = cv2.moments(cnt)
+    #         if M["m00"] != 0:
+    #             cX = int(M["m10"] / M["m00"])
+    #             cY = int(M["m01"] / M["m00"])
+
+    #             if center is None:
+    #                 center = (cX, cY)
+    #             else:
+    #                 center = (
+    #                     int(center[0] * (1 - alpha) + cX * alpha),
+    #                     int(center[1] * (1 - alpha) + cY * alpha)
+    #                 )
+
+
+    #             cv2.circle(frame, (cX, cY), 10, current_color, -1)  # Draw a white disk
+    #             prev_point = center
+    #         else:
+    #             center = None
+    #             prev_point = None
